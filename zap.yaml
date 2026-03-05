@@ -1,0 +1,159 @@
+env:
+  contexts:
+    - name: evergreenparts
+      urls:
+        - https://evergreenparts.de/
+
+      # Allowlist: only scan pages that are actually worth active-scanning.
+      # Everything not matching these paths is implicitly excluded.
+      # This is far more robust than a blocklist for a JTL shop with hundreds of product slugs.
+      includePaths:
+        # Root
+        - https://evergreenparts.de/$
+        # Core account / auth pages
+        - https://evergreenparts.de/(Home|Start|My-account|Mein-Konto|Register|Registrieren|Forgot-password|Passwort-vergessen|Cart|Warenkorb)(\?.*)?$
+        # Legal / info pages
+        - https://evergreenparts.de/(AGB|General-Terms-And-Conditions|Cancellation-Instructions|Widerrufsrecht|Datenschutzerklaerung|Privacy|Impressum|Imprint|Shipment|Versandinformationen)$
+        # ETA calibre category pages and their sub-categories / filter variants
+        - https://evergreenparts.de/ETA-.*
+        # Brand spare-parts category trees
+        - https://evergreenparts.de/(Ersatzteile-fuer-|Watch-Parts-for-|Watchparts-for-|Spare-parts-for-).*
+        # Movement / case category trees
+        - https://evergreenparts.de/(Movement-Watch-Parts|Case-Watch-Parts|Gehaeuse-Ersatzteile|Case-parts-by-Ref)((_[0-9]+|__[A-Za-z0-9-]+)?(\?.*)?)?$
+        - https://evergreenparts.de/Movement-Watch-Parts-for-ETA(\?.*)?$
+        # Crystal / dial / tools / small-parts categories
+        - https://evergreenparts.de/(Glaeser|Dials|Zifferblaetter_[0-9]+|Werkzeug|Werkzeuge|Tools|Horia)((_[0-9]+)?(\?.*)?)?$
+        - https://evergreenparts.de/(Schrauben_[0-9]+|Screws_1|Schrauben-fuer-Armband|Screws-for-Bracelet)((__[A-Za-z0-9-]+|_s[0-9]+)?(\?.*)?)?$
+        - https://evergreenparts.de/(Federstege|Schliessenfedern|Kronen|Crowns|Armbaender|Bracelet|Bracelet-parts|Armband-Teile|Bezels|Luenetteneinlagen|Abdeckpunkte)(\?.*)?$
+        - https://evergreenparts.de/(Dichtungen_[0-9]+|Gaskets_[0-9]+|Tuben|Tubes|Pusher_[0-9]+|Druecker_[0-9]+)(\?.*)?$
+        - https://evergreenparts.de/(Zeiger_[0-9]+|Hands_[0-9]+|Kaliber-Quarz|Kal-9000|Cal-9000|SW500|SW[0-9]+-[0-9]+|Elektronik-Baugruppe|Electronic-module)(\?.*)?$
+        - https://evergreenparts.de/Electronic-module(__|__Genuine)?(\?.*)?$
+        # search / utility
+        - https://evergreenparts.de/(search|sitemap\.xml|robots\.txt|rss\.xml)$
+        # JTL filter/sort/lang params on any allowed category page
+        - https://evergreenparts.de/.*[?&](af|Sortierung|lang|overview|k|kf|qs)=.*
+
+      excludePaths:
+        # Always exclude static assets
+        - https://evergreenparts.de/templates/.*
+        - https://evergreenparts.de/.*/NOVA/.*
+        - https://evergreenparts.de/.*\.(css|js|map|png|jpg|jpeg|gif|svg|webp|ico|woff|woff2|ttf|eot)(\?.*)?$
+        # Exclude destructive shop flows
+        - https://evergreenparts.de/(Checkout|Bestellvorgang|Pay|Logout|Warenkorb).*
+        # Exclude JTL legacy article URLs (?a=<id>) — individual product pages
+        - https://evergreenparts.de/.*[?&]a=\d+.*
+
+      sessionManagement:
+        method: cookie
+
+      authentication:
+        method: form
+        parameters:
+          loginPageUrl: https://evergreenparts.de/Home
+          loginRequestUrl: https://evergreenparts.de/Home
+
+          # Your captured POST body; tokens are dynamic, so keep them as variables.
+          loginRequestBody: >
+            jtl_token={%jtl_token%}&cfts={%cfts%}&email={%username%}&passwort={%password%}&permanentLogin=1&login=1
+
+        verification:
+          method: response
+          loggedOutRegex: "Login for registered customers"
+          loggedInRegex: "Logout|Abmelden|Mein Konto|My account"
+
+      users:
+        - name: evergreen-user
+          credentials:
+            username: "${EVERGREEN_USER}"
+            password: "${EVERGREEN_PASS}"
+
+  parameters:
+    failOnError: true
+    progressToStdout: true
+
+jobs:
+  # Alert filters must be the very first job so they are active during the passive
+  # scan that runs while the requestor replays pages (alerts raised before this job
+  # runs are NOT retroactively suppressed).
+  - type: alertFilter
+    parameters:
+      deleteGlobalAlerts: false
+    alertFilters:
+      # The numbers 2671, 2678, 2681, 2801 are JTL shop item IDs that happen to
+      # match the Mastercard BIN/pattern heuristic.  They are not credit-card
+      # numbers, so we treat this as a false positive.
+      - ruleId: 10062        # PII Disclosure
+        newRisk: False Positive
+        url: ".*evergreenparts\\.de/.*"
+        urlRegex: true
+        evidence: "2671 2678 2681 2801"
+        evidenceRegex: false
+
+  # No spider — instead replay a fixed, curated list of URLs derived from the last
+  # sites-tree run. This is the only reliable way to keep product-page slugs out of
+  # the active scan on a JTL shop where the spider can't be scoped tightly enough.
+  # Re-generate this list by running spider-only against the current sites-tree.yaml
+  # and filtering with the keep_patterns in the companion script.
+  - type: requestor
+    parameters:
+      user: evergreen-user
+    requests:
+      # ── root ──────────────────────────────────────────────────────────────────
+      - url: https://evergreenparts.de/
+      # ── account / auth ────────────────────────────────────────────────────────
+      - url: https://evergreenparts.de/Home
+      - url: https://evergreenparts.de/Home
+        method: POST
+        data: "jtl_token=&cfts=&email=&passwort=&permanentLogin=&login=1"
+      - url: https://evergreenparts.de/My-account
+      - url: https://evergreenparts.de/Mein-Konto
+      - url: https://evergreenparts.de/Register
+      - url: https://evergreenparts.de/Registrieren
+      - url: https://evergreenparts.de/Forgot-password
+      - url: https://evergreenparts.de/Passwort-vergessen
+      # ── legal / info ──────────────────────────────────────────────────────────
+      - url: https://evergreenparts.de/AGB
+      - url: https://evergreenparts.de/General-Terms-And-Conditions
+      - url: https://evergreenparts.de/Cancellation-Instructions
+      - url: https://evergreenparts.de/Widerrufsrecht
+      - url: https://evergreenparts.de/Datenschutzerklaerung
+      - url: https://evergreenparts.de/Privacy
+      - url: https://evergreenparts.de/Impressum
+      - url: https://evergreenparts.de/Imprint
+      - url: https://evergreenparts.de/Shipment
+      - url: https://evergreenparts.de/Versandinformationen
+      # ── some categories ──────────────────────────────────────────
+      - url: https://evergreenparts.de/Ersatzteile-fuer-Rolex
+      - url: https://evergreenparts.de/Ersatzteile-fuer-Omega
+      - url: https://evergreenparts.de/Bracelet-parts
+      - url: https://evergreenparts.de/Kaliber-Quarz
+      - url: https://evergreenparts.de/Kal-9000
+      - url: https://evergreenparts.de/Cal-9000
+      - url: https://evergreenparts.de/Werkersatzteile_3
+      - url: https://evergreenparts.de/Werkersatzteile_4
+      # ── search / utility ──────────────────────────────────────────────────────
+      - url: https://evergreenparts.de/search
+      - url: https://evergreenparts.de/sitemap.xml
+      - url: https://evergreenparts.de/robots.txt
+      - url: https://evergreenparts.de/rss.xml
+
+  # Export the requestor-seeded sites tree
+  - type: export
+    parameters:
+      context: evergreenparts
+      type: yaml
+      source: sitestree
+      fileName: /zap/wrk/sites-tree.yaml
+
+  - type: activeScan
+    parameters:
+      context: evergreenparts
+      user: evergreen-user
+      policy: Default Policy
+      maxScanDurationInMins: 15
+
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: /zap/wrk/
+      reportFile: zap-report.html
